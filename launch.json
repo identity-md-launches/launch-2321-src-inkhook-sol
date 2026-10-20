@@ -1,0 +1,34 @@
+{
+  "kind": "univ4_hook",
+  "hook": {
+    "contract": "InkHook",
+    "constructorArgs": [
+      "$poolManager",
+      "0x54fa3515848440ddde2aefe45a382bd868cacd15",
+      "0x33c85714c7d78fdb253fe1cf761d2d5c3c12d747",
+      "0xd34a99bc0f67ae1bbd63c660e6d0b0dd03e263b7",
+      "0xbc10b3662231c830d2ee10bc6359db17bea4b3d4",
+      "25",
+      "$factory"
+    ],
+    "permissions": [
+      "beforeInitialize",
+      "beforeSwap",
+      "afterSwap",
+      "afterSwapReturnDelta"
+    ]
+  },
+  "token": {
+    "contract": "LaunchToken",
+    "name": "INK",
+    "symbol": "INK",
+    "decimals": 18
+  },
+  "pool": {
+    "pairedCurrency": "0xd34a99bc0f67ae1bbd63c660e6d0b0dd03e263b7",
+    "fee": 12500,
+    "tickSpacing": 60,
+    "initialPrice": "79228162514264337593543950336"
+  },
+  "notes": "Ethereum mainnet INK/IMD launch using the unchanged InkHook and LaunchToken, which takes no constructor arguments. Deploy only these two contracts. Reuse InkPortraits 0x54fa3515848440ddde2aefe45a382bd868cacd15, InkVault 0x33c85714c7d78fdb253fe1cf761d2d5c3c12d747, InkLiquidity 0xa53a3b0521e471f69c0351d9e6620848e749f37d and InkRenderer 0x9853b489003add907ff0849d899f5cb44e8c17d2 from IMD launch 2305; SOURCE_PROVENANCE.json identifies this tree as their source. beforeInitialize is callable only by the PoolManager and accepts only $factory as sender; it binds the hook once to a pool containing IMD and learns INK from the other currency. The hook accepts the listed 12500 LP fee (1.25%). Its additional immutable fee is 25 bps (0.25%) of the unspecified swap currency: output for exact-input swaps, input for exact-output swaps. The hook fee is waived only when portraits.isAgentHolder(tx.origin) is true, requiring agent-portrait ownership since an earlier block; the exemption follows the transaction-origin wallet. Hook fees accrue as PoolManager claims. Anyone may call collectFees(): IMD goes to treasury 0xbc10b3662231c830d2ee10bc6359db17bea4b3d4 and INK goes to vault.liquidity(), the existing InkLiquidity contract, whose permissionless addLiquidity() reinvests eligible balances into the pool. No INK or IMD tokens are burned and hook fees are not sold for ETH. Every swap is rejected until vault.released() is true, with no time-based fallback. After the vault's 24-hour claim window ends, anyone may call release(), which atomically adds any unclaimed INK to the pool before trading can proceed. The hook has no owner, admin, upgrade role or parameter setters. The launch policy directs the launch's pool trading fee share to paying wallet 0x824e12b38cff2d3e7ad9607a0212f7f9eb6a06e3; it is separate from the hook-fee treasury. initialPrice records the required one-to-one sqrtPriceX96 reference; the deployer derives the actual opening price from the separate launch policy and token address."
+}
