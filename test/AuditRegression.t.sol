@@ -149,7 +149,8 @@ contract AuditRegressionTest is Test {
                 IInkVault(address(vault)),
                 Currency.wrap(address(0)),
                 treasury,
-                uint16(25)
+                uint16(25),
+                address(this) // the test initializes the pool, as the launch factory does
             ),
             hookAddress
         );

@@ -6,6 +6,38 @@
 > (Sourcify: exact match). `SHA256SUMS`, `BYTECODE_HASHES.json` and `SOURCE_PROVENANCE.json` were regenerated for this
 > tree. This commit is the source for the INK hook launch (`src/InkHook.sol`).
 
+## The INK hook launch
+
+The launch deploys two contracts, in this order, and nothing else (the four application contracts above
+are live and unchanged):
+
+- `src/LaunchToken.sol`: INK (symbol `INK`), a plain fixed-supply ERC-20, 1,000,000,000 tokens at 18
+  decimals minted once to the launch factory, which splits it 10% swarm / 10% pool / 80% InkVault. It has
+  no mint, burn, owner, pause, blocklist, fee or upgrade function. The brief's hook fee and trading lock
+  live in the hook, not the token.
+- `src/InkHook.sol`: the hook on the INK/IMD pool (pool fee 1.25%, the launch policy's tier; tick spacing
+  60). Constructor: `$poolManager`, InkPortraits, InkVault, IMD, the treasury
+  `0xbc10b3662231c830d2ee10bc6359db17bea4b3d4`, `25`, `$factory`. It has no owner, admin or upgrade role.
+
+Callbacks the hook enables: `beforeInitialize` (only the launch factory may bind the hook to a pool, and
+only once, paired with IMD; this is the audit fix dcacbade3b53, see ADAPTATION.md), `beforeSwap` (the
+trading lock: every swap reverts until `InkVault.released()`; no time-based fallback) and `afterSwap`
+with `afterSwapReturnDelta` (the hook fee). All other callbacks are off, so the factory's zero-change fee
+collection on its liquidity position never involves the hook.
+
+The hook fee is 0.25% of the side the swapper does not fix: the output of an exact-input swap, the
+input of an exact-output swap, in whichever currency that is. It is waived when `tx.origin` has held an
+agent portrait since an earlier block. Fees are held as Uniswap claims and paid out by `collectFees()`,
+callable by anyone: IMD to the treasury, INK to `InkVault.liquidity()` (the live InkLiquidity), which
+adds it back to the pool. The fee is **not** settled in ETH and nothing is burned: the requester's brief
+says "do not sell hook fees for ETH", which overrides the generic hook reference's ETH settlement. The
+pool's own 1.25% trading-fee share goes to the wallet that paid for the launch,
+`0x824e12b38cff2d3e7ad9607a0212f7f9eb6a06e3`, through the factory.
+
+`test/InkHookLaunch.t.sol` tests the token, the factory-only binding, every callback's guard, the lock,
+the fee on a buy and a sell at exact input and exact output, the payout and the waiver, and rehearses
+both constructors on an empty chain.
+
 This is launch source. Original packaging did not audit, upload, pay for or deploy these
 contracts. The package does not include the real snapshot, private cutoff, keys,
 RPC credentials or confirmed deployed application addresses.

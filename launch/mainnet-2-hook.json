@@ -1,7 +1,7 @@
 {
   "action": "launch.open",
   "input": {
-    "objective": "Token name: INK. Token symbol: INK. Launch it with the InkHook from this repository on its pool, paired with IMD, on Ethereum mainnet. Keep the hook's logic as written. Constructor values: portraits = REPLACE_WITH_INKPORTRAITS_ADDRESS, vault = REPLACE_WITH_VAULT_ADDRESS, imd = the pool's IMD currency, treasury = 0xbc10B3662231c830d2ee10bc6359dB17bEa4b3d4, feeBps = 25 (a 0.25% hook fee on top of the pool's own fee, waived for wallets holding an agent portrait; IMD fees go to the treasury and INK fees are sent to the vault's liquidity contract (vault.liquidity()), which adds them back to the pool; nothing is burned; do not sell hook fees for ETH). Trading lock: the hook rejects every swap until vault.released() is true; there is no time-based fallback (anyone can call release() once the vault's 24-hour claim window ends, and it adds the unclaimed INK to the pool in the same transaction). The agent-holder fee waiver requires portraits.isAgentHolder(tx.origin), which needs the portrait held since an earlier block. Nobody can change any of these after deployment: the hook has no owner, admin or upgrade role, and none may be added. The pool trading fee share goes to the paying wallet, which is 0x824E12b38CfF2D3e7ad9607a0212f7F9Eb6a06E3.",
+    "objective": "Token name: INK. Token symbol: INK. Launch it with the InkHook from this repository on its pool, paired with IMD, on Ethereum mainnet. Keep the hook's logic as written. Constructor values: portraits = 0x54fa3515848440ddde2aefe45a382bd868cacd15, vault = 0x33c85714c7d78fdb253fe1cf761d2d5c3c12d747, imd = the pool's IMD currency, treasury = 0xbc10B3662231c830d2ee10bc6359dB17bEa4b3d4, feeBps = 25 (a 0.25% hook fee on top of the pool's own fee, waived for wallets holding an agent portrait; IMD fees go to the treasury and INK fees are sent to the vault's liquidity contract (vault.liquidity()), which adds them back to the pool; nothing is burned; do not sell hook fees for ETH). Trading lock: the hook rejects every swap until vault.released() is true; there is no time-based fallback (anyone can call release() once the vault's 24-hour claim window ends, and it adds the unclaimed INK to the pool in the same transaction). The agent-holder fee waiver requires portraits.isAgentHolder(tx.origin), which needs the portrait held since an earlier block. Nobody can change any of these after deployment: the hook has no owner, admin or upgrade role, and none may be added. The pool trading fee share goes to the paying wallet, which is 0x824E12b38CfF2D3e7ad9607a0212f7F9Eb6a06E3.",
     "repoUrl": "REPLACE_WITH_REPO_URL",
     "baseCommit": "REPLACE_WITH_COMMIT",
     "contracts": [
@@ -12,7 +12,7 @@
     "pairWith": "imd",
     "economics": {
       "poolBps": 1000,
-      "remainderTo": "REPLACE_WITH_VAULT_ADDRESS"
+      "remainderTo": "0x33c85714c7d78fdb253fe1cf761d2d5c3c12d747"
     },
     "github": true,
     "shape": "chain",

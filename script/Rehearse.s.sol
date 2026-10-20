@@ -67,7 +67,9 @@ contract Rehearse is InkSteps {
     }
 
     function _pad3(uint256 x) internal pure returns (string memory) {
-        return x < 10 ? string.concat("00", vm.toString(x)) : x < 100 ? string.concat("0", vm.toString(x)) : vm.toString(x);
+        return x < 10
+            ? string.concat("00", vm.toString(x))
+            : x < 100 ? string.concat("0", vm.toString(x)) : vm.toString(x);
     }
 
     function run() external {
@@ -107,7 +109,9 @@ contract Rehearse is InkSteps {
         string memory json = vm.readFile("test/fixtures/snapshot-sample.json");
         g = gasleft();
         vm.startPrank(owner);
-        stepOpenClaims(l.vault, l.liq, l.ink, l.key, vm.parseJsonBytes32(json, ".root"), uint64(block.timestamp));
+        stepOpenClaims(
+            l.vault, l.liq, l.ink, l.key, vm.parseJsonBytes32(json, ".root"), uint64(block.timestamp)
+        );
         vm.stopPrank();
         _step("4. setInk + setPool + setPremium + setup", g - gasleft(), 4);
 
@@ -132,7 +136,9 @@ contract Rehearse is InkSteps {
         console2.log("6. release() gas (anyone, once):", g - gasleft() + 21_000);
         require(l.hook.tradingOpen(), "trading open");
         require(l.portraits.agentMinted() + l.vault.swarmSlots() == 2000, "2,000 portraits");
-        require(IERC20(l.ink).balanceOf(address(l.vault)) == n * PORTRAIT, "vault backs the claimed portraits");
+        require(
+            IERC20(l.ink).balanceOf(address(l.vault)) == n * PORTRAIT, "vault backs the claimed portraits"
+        );
 
         // 7. Metadata reads like a marketplace would.
         g = gasleft();
@@ -140,7 +146,11 @@ contract Rehearse is InkSteps {
         console2.log("7. tokenURI bytes / gas:", bytes(uri).length, g - gasleft());
 
         console2.log("--------");
-        console2.log(string.concat("Owner total: gas ", vm.toString(ownerGas), " ~ ", _eth(ownerGas * gasGwei * 1e9), " ETH"));
+        console2.log(
+            string.concat(
+                "Owner total: gas ", vm.toString(ownerGas), " ~ ", _eth(ownerGas * gasGwei * 1e9), " ETH"
+            )
+        );
         console2.log("Rehearsal passed. Nothing was broadcast.");
     }
 
@@ -149,7 +159,8 @@ contract Rehearse is InkSteps {
     function _simulateHookLaunch(Launch memory l) internal {
         address imdLauncher = makeAddr("imd-launcher");
         uint160 flags = uint160(
-            Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG
+            Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG
+                | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG
         );
         bytes memory init = abi.encodePacked(
             vm.getCode("InkHook.sol:InkHook"),
@@ -159,7 +170,8 @@ contract Rehearse is InkSteps {
                 IInkVault(address(l.vault)),
                 Currency.wrap(IMD),
                 treasury,
-                uint16(25)
+                uint16(25),
+                imdLauncher // initializes the pool below, as the launch factory does
             )
         );
         bytes32 initHash = keccak256(init);
@@ -199,16 +211,26 @@ contract Rehearse is InkSteps {
         (int24 lower, int24 upper) = inkIs0 ? (openTick, openTick + 46_000) : (openTick - 46_000, openTick);
         uint256 amount = 100_000_000e18;
         uint128 liqAmt = inkIs0
-            ? LiquidityAmounts.getLiquidityForAmount0(TickMath.getSqrtPriceAtTick(lower), TickMath.getSqrtPriceAtTick(upper), amount)
-            : LiquidityAmounts.getLiquidityForAmount1(TickMath.getSqrtPriceAtTick(lower), TickMath.getSqrtPriceAtTick(upper), amount);
+            ? LiquidityAmounts.getLiquidityForAmount0(
+                TickMath.getSqrtPriceAtTick(lower), TickMath.getSqrtPriceAtTick(upper), amount
+            )
+            : LiquidityAmounts.getLiquidityForAmount1(
+                TickMath.getSqrtPriceAtTick(lower), TickMath.getSqrtPriceAtTick(upper), amount
+            );
         ink.approve(PERMIT2, type(uint256).max);
         IAllowanceTransfer(PERMIT2).approve(address(ink), POSM, type(uint160).max, type(uint48).max);
         bytes[] memory params = new bytes[](2);
-        params[0] = abi.encode(key, lower, upper, uint256(liqAmt), inkIs0 ? amount : 0, inkIs0 ? 0 : amount, to, bytes(""));
-        params[1] = abi.encode(key.currency0, key.currency1);
-        IPositionManager(POSM).modifyLiquidities(
-            abi.encode(abi.encodePacked(uint8(Actions.MINT_POSITION), uint8(Actions.SETTLE_PAIR)), params), block.timestamp
+        params[0] = abi.encode(
+            key, lower, upper, uint256(liqAmt), inkIs0 ? amount : 0, inkIs0 ? 0 : amount, to, bytes("")
         );
+        params[1] = abi.encode(key.currency0, key.currency1);
+        IPositionManager(POSM)
+            .modifyLiquidities(
+                abi.encode(
+                    abi.encodePacked(uint8(Actions.MINT_POSITION), uint8(Actions.SETTLE_PAIR)), params
+                ),
+                block.timestamp
+            );
     }
 
     // ---------------------------------------------------------------- snapshot fixture

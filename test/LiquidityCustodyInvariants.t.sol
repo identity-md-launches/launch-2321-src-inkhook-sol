@@ -236,7 +236,8 @@ abstract contract LiquidityCustodyBase is Test {
                 IInkVault(address(vault)),
                 Currency.wrap(IMD),
                 TREASURY,
-                uint16(25)
+                uint16(25),
+                address(this) // the test initializes the pool, as the launch factory does
             ),
             hookAddress
         );

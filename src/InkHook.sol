@@ -32,6 +32,9 @@ interface IInkVault {
 ///   swap), held as a Uniswap claim, and paid out by collectFees(): IMD to the treasury, INK to the vault's
 ///   liquidity contract, which adds it back to the pool as permanent liquidity.
 /// Nothing can be changed after deployment; the hook has no owner.
+/// Only the launch factory, which deploys this hook and initializes its pool, can bind the hook to a pool:
+/// beforeInitialize refuses every other sender, so nobody can front-run the launch and bind the one-pool hook
+/// to a pool with the wrong token, fee tier, tick spacing or opening price (audit finding dcacbade3b53).
 /// @dev The swapper is tx.origin, because routers sit between the wallet and the pool. Smart-contract
 /// wallets therefore don't get the discount, and conversely every swap in a transaction an agent-holder
 /// EOA sends for others (a bundler, relayer or searcher) is exempt: the exemption follows the transaction
@@ -48,6 +51,8 @@ contract InkHook is IHooks, IUnlockCallback {
     Currency public immutable imd;
     address public immutable treasury;
     uint16 public immutable feeBps;
+    /// @notice The launch factory: the only sender beforeInitialize accepts.
+    address public immutable factory;
 
     /// @notice INK, learned when the pool opens.
     Currency public ink;
@@ -62,6 +67,7 @@ contract InkHook is IHooks, IUnlockCallback {
     event FeesPaid(Currency indexed currency, address indexed to, uint256 amount);
 
     error NotPoolManager();
+    error NotFactory();
     error HookNotImplemented();
     error PoolAlreadyCreated();
     error WrongPool();
@@ -75,9 +81,13 @@ contract InkHook is IHooks, IUnlockCallback {
         IInkVault vault_,
         Currency imd_,
         address treasury_,
-        uint16 feeBps_
+        uint16 feeBps_,
+        address factory_
     ) {
-        if (treasury_ == address(0) || address(portraits_) == address(0) || address(vault_) == address(0)) {
+        if (
+            treasury_ == address(0) || address(portraits_) == address(0) || address(vault_) == address(0)
+                || factory_ == address(0)
+        ) {
             revert ZeroAddress();
         }
         if (feeBps_ > MAX_FEE_BPS) revert FeeTooHigh();
@@ -87,6 +97,7 @@ contract InkHook is IHooks, IUnlockCallback {
         imd = imd_;
         treasury = treasury_;
         feeBps = feeBps_;
+        factory = factory_;
         Hooks.validateHookPermissions(IHooks(address(this)), getHookPermissions());
     }
 
@@ -116,12 +127,14 @@ contract InkHook is IHooks, IUnlockCallback {
 
     // ---------------------------------------------------------------- hooks
 
-    /// @dev One pool only: INK paired with IMD, with this hook. The launch window starts here.
-    function beforeInitialize(address, PoolKey calldata key, uint160)
+    /// @dev One pool only: INK paired with IMD, with this hook, created by the launch factory. The launch
+    /// window starts here.
+    function beforeInitialize(address sender, PoolKey calldata key, uint160)
         external
         onlyPoolManager
         returns (bytes4)
     {
+        if (sender != factory) revert NotFactory();
         if (poolCreated) revert PoolAlreadyCreated();
         if (address(key.hooks) != address(this)) revert WrongPool();
         if (key.currency0 == imd) ink = key.currency1;

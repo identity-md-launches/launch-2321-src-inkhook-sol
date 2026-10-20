@@ -1,3 +1,116 @@
+# INK hook launch adaptation (Ethereum)
+
+This section records the second launch: the INK token and the InkHook on an INK/IMD Uniswap v4 pool
+on Ethereum (chain id 1). The four application contracts are already live (InkPortraits
+`0x54fa3515848440ddde2aefe45a382bd868cacd15`, InkVault `0x33c85714c7d78fdb253fe1cf761d2d5c3c12d747`,
+InkLiquidity `0xa53a3b0521e471f69c0351d9e6620848e749f37d`, InkRenderer
+`0x9853b489003add907ff0849d899f5cb44e8c17d2`) and are not changed or redeployed; this tree is their
+exact source (`SOURCE_PROVENANCE.json`). The earlier contracts-only adaptation follows below, unchanged.
+
+## What the launch deploys
+
+| Order | Solidity contract | Constructor arguments, in order |
+| --- | --- | --- |
+| 1 | `LaunchToken` (`src/LaunchToken.sol`) | none |
+| 2 | `InkHook` (`src/InkHook.sol`) | `$poolManager`, `0x54fa3515848440ddde2aefe45a382bd868cacd15` (portraits), `0x33c85714c7d78fdb253fe1cf761d2d5c3c12d747` (vault), `0xd34a99bc0f67ae1bbd63c660e6d0b0dd03e263b7` (imd, the pool's paired currency), `0xbc10b3662231c830d2ee10bc6359db17bea4b3d4` (treasury), `25` (feeBps), `$factory` |
+
+Hook permissions, validated against the address bits in the constructor: `beforeInitialize`,
+`beforeSwap`, `afterSwap`, `afterSwapReturnDelta`. The pool: INK/IMD, fee 12500, tick spacing 60; the
+hook accepts any fee tier and spacing and learns INK from the key in `beforeInitialize`. Neither
+constructor calls another contract, so both run on an empty chain (`test/InkHookLaunch.t.sol`,
+`InkHookFactoryLaunchTest`). No owner, admin or upgrade role exists on either contract and none was
+added; `$owner` appears in no argument. The hook's `beforeRemoveLiquidity` / `afterRemoveLiquidity`
+permissions are off, so the factory's zero-change fee collection on its position never reaches the hook.
+
+## Changes
+
+### `src/LaunchToken.sol` (new): the launch token
+
+Required by the launch kind: a fixed-supply ERC-20 with no constructor arguments, 18 decimals, exactly
+1,000,000,000 INK (10^27 minor units) minted once to `msg.sender`, the factory. Name and symbol are the
+brief's (`INK` / `INK`). OpenZeppelin `ERC20` (vendored 5.1.0) with nothing else: no mint, burn, owner,
+pause, blocklist, fee or upgrade function. The factory's 80% remainder, 800,000,000 INK, equals the
+vault's `SEATS * PORTRAIT` funding requirement exactly, so `setInk` can succeed (audit finding
+73ee013031 below). Tests: `test_tokenIsFixedSupplyInk` (supply, decimals, transfer, no mint/owner),
+`test_constructorsNeedNoLiveDependency`, `test_runtimeSizeAndOpcodes`.
+
+### `src/InkHook.sol`: `beforeInitialize` accepts only the launch factory (audit dcacbade3b53, medium)
+
+Reproduced: both supplied proof tests failed on the imported code (a stranger's `initialize` of an
+ETH/IMD pool with fee 0 and spacing 1, or of the right pair at a wrong fee tier and price, was accepted
+and bound the single-use hook). Fix, within the stated design and the launch reference's pattern: a
+seventh constructor argument `address factory_` (the manifest writes `$factory`), stored in the
+immutable `factory`, and `beforeInitialize` reverts `NotFactory()` unless its `sender` is that address.
+A zero factory reverts `ZeroAddress()`. Everything else in the hook is as written: the lock, the fee,
+the `tx.origin` waiver, the payout paths, the absence of any owner. Tests:
+`test/InkHookLaunch.t.sol` (`test_strangerCannotBindHookToWrongPoolBeforeFactory`,
+`test_strangerCannotFixWrongFeeAndPriceBeforeFactory`, the two proofs adapted;
+`test_factoryInitializesExactlyOnePoolPairedWithImd`; `test_factoryBindsThePoolOthersCannot` through a
+CREATE2 deployer that then initializes) and `test/InkSystem.t.sol` (`test_onlyTheFactoryCanInitialize`,
+plus the zero-factory guard in `test_guards`).
+
+Because the argument was appended, the first six arguments keep their previous order. Every fixture
+and script that constructs the hook passes the account that goes on to call `PoolManager.initialize`
+in that fixture: `test/InkSystem.t.sol`, `test/AuditRegression.t.sol`,
+`test/LiquidityCustodyInvariants.t.sol`, `test/MainnetFork.t.sol` (the test contract),
+`script/Rehearse.s.sol` (the simulated IMD launcher), `script/LocalStack.s.sol` (the broadcaster).
+
+### `test/InkHookLaunch.t.sol` (new): launch tests
+
+Required by the launch reference (initialization and unauthorized-callback tests; fee on a buy and a
+sell, exact input and exact output; token supply and transfer; constructors on an empty chain). Covers
+the lock (`test_noSwapUntilTheVaultReleases`, including that the position can still be modified before
+release), the four fee shapes with the 0.25% taken from the unspecified side only, the payout (IMD to
+the treasury, INK to `vault.liquidity()`, no ETH, nothing burned), the `tx.origin` waiver, the
+immutables and permission set, every callback's `NotPoolManager` / `HookNotImplemented` guard, the
+absence of an owner surface, and a CREATE2 rehearsal on chain id 1 with the live dependency addresses
+holding no code (runtime sizes below EIP-170, no DELEGATECALL / CALLCODE / SELFDESTRUCT).
+
+### `launch/mainnet-2-hook.json`
+
+The portraits and vault placeholders are filled with the live addresses. It remains a request draft,
+not the manifest; `launch.json` is the manifest step's.
+
+### `README.md`
+
+Documents the hook launch: what the fee is, that it is not settled in ETH and why, where each fee goes,
+which callbacks the hook enables, and what the brief asked that the token does not do.
+
+## Imported audit findings for this launch
+
+- **dcacbade3b53 (factory-only `beforeInitialize`, medium)**: reproduced and fixed, above.
+- **73ee013031 (trading lock has no fallback, low)**: reproduces as described and is what the
+  requester asked for ("there is no time-based fallback"), so it stays as a trust assumption. The
+  states that keep the pool locked: the vault never funded with 800,000,000 INK, `setInk` / `setup`
+  never called by the owner, or key loss. For this launch the supply is 10^27 and `remainderTo` is
+  the live vault, so the vault receives exactly 800,000,000 INK and `setInk` is satisfiable
+  (`test_tokenIsFixedSupplyInk` pins the arithmetic). The owner's steps remain the owner's.
+- **a63665098a41 (waiver keyed to `tx.origin`, low)**: reproduces as described and is what the
+  requester specified ("requires `portraits.isAgentHolder(tx.origin)`"), documented in the hook's
+  own comment: a relayer or bundler EOA holding an agent portrait exempts every swap it sends, and
+  smart-contract wallets never get the waiver. Not changed.
+- **ea9b327d8f6f (fee INK listed at the caller's spot tick, low)**: in the live InkLiquidity, which
+  this launch cannot change; already the recorded design assumption 942e691ce965. Mitigation is
+  operational (a keeper calls `addLiquidity()` promptly). Not changed.
+- **0927ef1c0cd2 (coverage, info)** and **f4f552cea499 (manifest notes, info)**: no defect; noted. The
+  manifest notes' constructor list now has the seventh `$factory` argument. The brief's "sell hook
+  fees for ETH" rule from the generic hook reference does not apply: the requester wrote "do not sell
+  hook fees for ETH", and the hook settles each fee in its own currency.
+
+## Verification
+
+Forge 1.8.3, Solidity 0.8.26, the project's own `foundry.toml`. The imported suite passed before any
+change (117 passed, 28 skipped). The supplied proof `Proof_dcacbade3b53.t.sol`, run from `test/scratch`
+against the unchanged tree, failed both tests ("next call did not revert as expected"), reproducing the
+finding. After the changes, with
+`FOUNDRY_FUZZ_SEED=0x6c42b4a49d6986a4b7c227279743f9a84e24af6f705d598448757175f7e37a8f`:
+`forge build` passes; `forge test` passes with **134 passed, 0 failed, 28 skipped** across 23 suites
+(the skips are the existing optional fork and snapshot tests, which need an RPC). `forge build --sizes`:
+InkHook runtime 6,246 bytes, LaunchToken 1,752 bytes. No Slither or Mythril run is claimed. No
+dependency was added; no protected path was touched; nothing was deployed or signed.
+
+---
+
 # Ethereum contracts-only launch adaptation
 
 ## Deployment handoff

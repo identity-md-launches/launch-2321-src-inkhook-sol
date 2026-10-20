@@ -92,15 +92,24 @@ contract LocalStack is InkSteps {
         console2.log("Local stack ready; addresses in out-preview/localstack.json");
     }
 
-    function _deployHook(InkPortraits portraits, InkVault vault, address treasury) internal returns (InkHook) {
+    function _deployHook(InkPortraits portraits, InkVault vault, address treasury)
+        internal
+        returns (InkHook)
+    {
         uint160 flags = uint160(
-            Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG
+            Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG
+                | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG
         );
         bytes memory init = abi.encodePacked(
             vm.getCode("InkHook.sol:InkHook"),
             abi.encode(
-                MANAGER, IAgentPortraits(address(portraits)), IInkVault(address(vault)), Currency.wrap(IMD), treasury,
-                uint16(25)
+                MANAGER,
+                IAgentPortraits(address(portraits)),
+                IInkVault(address(vault)),
+                Currency.wrap(IMD),
+                treasury,
+                uint16(25),
+                owner // the broadcaster initializes the pool here, standing in for the launch factory
             )
         );
         bytes32 initHash = keccak256(init);
@@ -121,15 +130,25 @@ contract LocalStack is InkSteps {
         (int24 lower, int24 upper) = inkIs0 ? (openTick, openTick + 46_000) : (openTick - 46_000, openTick);
         uint256 amount = 100_000_000e18;
         uint128 liqAmt = inkIs0
-            ? LiquidityAmounts.getLiquidityForAmount0(TickMath.getSqrtPriceAtTick(lower), TickMath.getSqrtPriceAtTick(upper), amount)
-            : LiquidityAmounts.getLiquidityForAmount1(TickMath.getSqrtPriceAtTick(lower), TickMath.getSqrtPriceAtTick(upper), amount);
+            ? LiquidityAmounts.getLiquidityForAmount0(
+                TickMath.getSqrtPriceAtTick(lower), TickMath.getSqrtPriceAtTick(upper), amount
+            )
+            : LiquidityAmounts.getLiquidityForAmount1(
+                TickMath.getSqrtPriceAtTick(lower), TickMath.getSqrtPriceAtTick(upper), amount
+            );
         ink.approve(PERMIT2, type(uint256).max);
         IAllowanceTransfer(PERMIT2).approve(address(ink), POSM, type(uint160).max, type(uint48).max);
         bytes[] memory params = new bytes[](2);
-        params[0] = abi.encode(key, lower, upper, uint256(liqAmt), inkIs0 ? amount : 0, inkIs0 ? 0 : amount, to, bytes(""));
-        params[1] = abi.encode(key.currency0, key.currency1);
-        IPositionManager(POSM).modifyLiquidities(
-            abi.encode(abi.encodePacked(uint8(Actions.MINT_POSITION), uint8(Actions.SETTLE_PAIR)), params), block.timestamp + 600
+        params[0] = abi.encode(
+            key, lower, upper, uint256(liqAmt), inkIs0 ? amount : 0, inkIs0 ? 0 : amount, to, bytes("")
         );
+        params[1] = abi.encode(key.currency0, key.currency1);
+        IPositionManager(POSM)
+            .modifyLiquidities(
+                abi.encode(
+                    abi.encodePacked(uint8(Actions.MINT_POSITION), uint8(Actions.SETTLE_PAIR)), params
+                ),
+                block.timestamp + 600
+            );
     }
 }

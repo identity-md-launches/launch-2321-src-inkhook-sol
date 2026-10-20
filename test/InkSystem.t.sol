@@ -10,6 +10,7 @@ import {Deployers} from "v4-core-test/utils/Deployers.sol";
 import {LiquidityAmounts} from "v4-core-test/utils/LiquidityAmounts.sol";
 import {IHooks} from "v4-core/interfaces/IHooks.sol";
 import {Hooks} from "v4-core/libraries/Hooks.sol";
+import {CustomRevert} from "v4-core/libraries/CustomRevert.sol";
 import {SqrtPriceMath} from "v4-core/libraries/SqrtPriceMath.sol";
 import {TickMath} from "v4-core/libraries/TickMath.sol";
 import {PoolKey} from "v4-core/types/PoolKey.sol";
@@ -146,7 +147,8 @@ contract InkSystemTest is Test, Deployers, DeployPermit2 {
                 IInkVault(address(vault)),
                 Currency.wrap(address(imd)),
                 treasury,
-                uint16(25)
+                uint16(25),
+                address(this) // this test plays the launch factory: it initializes the pool below
             ),
             hookAddr
         );
@@ -865,7 +867,18 @@ contract InkSystemTest is Test, Deployers, DeployPermit2 {
             IInkVault(address(vault)),
             Currency.wrap(address(imd)),
             address(0),
-            25
+            25,
+            address(this)
+        );
+        vm.expectRevert(InkHook.ZeroAddress.selector);
+        new InkHook(
+            manager,
+            IAgentPortraits(address(portraits)),
+            IInkVault(address(vault)),
+            Currency.wrap(address(imd)),
+            treasury,
+            25,
+            address(0)
         );
         vm.expectRevert(InkHook.FeeTooHigh.selector);
         new InkHook(
@@ -874,7 +887,8 @@ contract InkSystemTest is Test, Deployers, DeployPermit2 {
             IInkVault(address(vault)),
             Currency.wrap(address(imd)),
             treasury,
-            101
+            101,
+            address(this)
         );
         vm.expectRevert(InkHook.NotPoolManager.selector);
         hook.beforeInitialize(address(this), poolKey, 0);
@@ -1002,6 +1016,24 @@ contract InkSystemTest is Test, Deployers, DeployPermit2 {
         second.tickSpacing = 10;
         vm.expectRevert();
         manager.initialize(second, TickMath.getSqrtPriceAtTick(0));
+    }
+
+    /// Audit finding dcacbade3b53: only the launch factory can bind the hook to a pool.
+    function test_onlyTheFactoryCanInitialize() public {
+        PoolKey memory second = poolKey;
+        second.tickSpacing = 10;
+        vm.prank(other, other);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                CustomRevert.WrappedError.selector,
+                address(hook),
+                IHooks.beforeInitialize.selector,
+                abi.encodeWithSelector(InkHook.NotFactory.selector),
+                abi.encodeWithSelector(Hooks.HookCallFailed.selector)
+            )
+        );
+        manager.initialize(second, TickMath.getSqrtPriceAtTick(0));
+        assertEq(hook.factory(), address(this));
     }
 
     /// Imported finding 8ff058a5ba34: an initialized pool is insufficient without the project's hook.

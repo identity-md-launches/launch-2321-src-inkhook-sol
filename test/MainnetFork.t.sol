@@ -169,7 +169,8 @@ abstract contract MainnetForkSetup is Test {
                 IInkVault(address(vault)),
                 Currency.wrap(address(IMD)),
                 treasury,
-                uint16(25)
+                uint16(25),
+                address(this) // the test initializes the pool, as the launch factory does
             ),
             hookAddr
         );
@@ -219,15 +220,22 @@ abstract contract MainnetForkSetup is Test {
     function _seedLaunchPool(int24 openTick, uint256 amount) internal {
         (int24 lower, int24 upper) = inkIs0 ? (openTick, openTick + RANGE) : (openTick - RANGE, openTick);
         uint128 l = inkIs0
-            ? LiquidityAmounts.getLiquidityForAmount0(TickMath.getSqrtPriceAtTick(lower), TickMath.getSqrtPriceAtTick(upper), amount)
-            : LiquidityAmounts.getLiquidityForAmount1(TickMath.getSqrtPriceAtTick(lower), TickMath.getSqrtPriceAtTick(upper), amount);
+            ? LiquidityAmounts.getLiquidityForAmount0(
+                TickMath.getSqrtPriceAtTick(lower), TickMath.getSqrtPriceAtTick(upper), amount
+            )
+            : LiquidityAmounts.getLiquidityForAmount1(
+                TickMath.getSqrtPriceAtTick(lower), TickMath.getSqrtPriceAtTick(upper), amount
+            );
         ink.approve(address(PERMIT2), type(uint256).max);
         PERMIT2.approve(address(ink), address(POSM), type(uint160).max, type(uint48).max);
         bytes[] memory params = new bytes[](2);
-        params[0] = abi.encode(key, lower, upper, uint256(l), inkIs0 ? amount : 0, inkIs0 ? 0 : amount, address(this), bytes(""));
+        params[0] = abi.encode(
+            key, lower, upper, uint256(l), inkIs0 ? amount : 0, inkIs0 ? 0 : amount, address(this), bytes("")
+        );
         params[1] = abi.encode(key.currency0, key.currency1);
         POSM.modifyLiquidities(
-            abi.encode(abi.encodePacked(uint8(Actions.MINT_POSITION), uint8(Actions.SETTLE_PAIR)), params), block.timestamp
+            abi.encode(abi.encodePacked(uint8(Actions.MINT_POSITION), uint8(Actions.SETTLE_PAIR)), params),
+            block.timestamp
         );
     }
 
@@ -244,22 +252,36 @@ abstract contract MainnetForkSetup is Test {
     /// minHopPriceX36 field, unlike the newer periphery in lib/).
     function _swapExactIn(address who, bool buyInk, uint128 amountIn) internal {
         bool zeroForOne = buyInk ? !inkIs0 : inkIs0;
-        (Currency cin, Currency cout) = zeroForOne ? (key.currency0, key.currency1) : (key.currency1, key.currency0);
+        (Currency cin, Currency cout) =
+            zeroForOne ? (key.currency0, key.currency1) : (key.currency1, key.currency0);
         bytes[] memory params = new bytes[](3);
         params[0] = abi.encode(ExactInSingle(key, zeroForOne, amountIn, 0, bytes("")));
         params[1] = abi.encode(cin, uint256(amountIn));
         params[2] = abi.encode(cout, uint256(0));
-        _execute(who, abi.encodePacked(uint8(Actions.SWAP_EXACT_IN_SINGLE), uint8(Actions.SETTLE_ALL), uint8(Actions.TAKE_ALL)), params);
+        _execute(
+            who,
+            abi.encodePacked(
+                uint8(Actions.SWAP_EXACT_IN_SINGLE), uint8(Actions.SETTLE_ALL), uint8(Actions.TAKE_ALL)
+            ),
+            params
+        );
     }
 
     function _swapExactOut(address who, bool buyInk, uint128 amountOut) internal {
         bool zeroForOne = buyInk ? !inkIs0 : inkIs0;
-        (Currency cin, Currency cout) = zeroForOne ? (key.currency0, key.currency1) : (key.currency1, key.currency0);
+        (Currency cin, Currency cout) =
+            zeroForOne ? (key.currency0, key.currency1) : (key.currency1, key.currency0);
         bytes[] memory params = new bytes[](3);
         params[0] = abi.encode(ExactOutSingle(key, zeroForOne, amountOut, type(uint128).max, bytes("")));
         params[1] = abi.encode(cin, type(uint256).max);
         params[2] = abi.encode(cout, uint256(amountOut));
-        _execute(who, abi.encodePacked(uint8(Actions.SWAP_EXACT_OUT_SINGLE), uint8(Actions.SETTLE_ALL), uint8(Actions.TAKE_ALL)), params);
+        _execute(
+            who,
+            abi.encodePacked(
+                uint8(Actions.SWAP_EXACT_OUT_SINGLE), uint8(Actions.SETTLE_ALL), uint8(Actions.TAKE_ALL)
+            ),
+            params
+        );
     }
 
     function _execute(address who, bytes memory actions, bytes[] memory params) internal {
@@ -269,7 +291,11 @@ abstract contract MainnetForkSetup is Test {
         ROUTER.execute(abi.encodePacked(V4_SWAP), inputs, block.timestamp);
     }
 
-    function _entry(uint256 i) internal view returns (uint256 seat, InkPortraits.AgentStats memory s, bytes32[] memory proof) {
+    function _entry(uint256 i)
+        internal
+        view
+        returns (uint256 seat, InkPortraits.AgentStats memory s, bytes32[] memory proof)
+    {
         string memory p = string.concat(".entries[", vm.toString(i), "]");
         seat = vm.parseJsonUint(json, string.concat(p, ".seat"));
         s = InkPortraits.AgentStats({
@@ -376,7 +402,9 @@ abstract contract MainnetForkBase is MainnetForkSetup {
         vault.deposit(ids, PORTRAIT * 99 / 100);
         vm.stopPrank();
         assertEq(ink.balanceOf(buyer), PORTRAIT * 99 / 100);
-        assertEq(ink.balanceOf(address(liq)) - liqBefore, PORTRAIT / 100, "the 1% hand-back fee goes to liquidity");
+        assertEq(
+            ink.balanceOf(address(liq)) - liqBefore, PORTRAIT / 100, "the 1% hand-back fee goes to liquidity"
+        );
         assertEq(ink.balanceOf(DEAD), 0, "nothing is burned");
 
         // Hook fees pay out: IMD to the treasury (exact-output buy pays the fee in IMD).
@@ -420,7 +448,9 @@ abstract contract MainnetForkBase is MainnetForkSetup {
         deal(address(IMD), a0, 10_000e18);
         _approveRouter(a0);
         _swapExactIn(a0, true, 1e18);
-        assertEq(MANAGER.balanceOf(address(hook), uint256(uint160(address(ink)))), 0, "no fee for agent holders");
+        assertEq(
+            MANAGER.balanceOf(address(hook), uint256(uint160(address(ink)))), 0, "no fee for agent holders"
+        );
     }
 
     /// No time-based fallback: a month after the window, with nobody having called release, the real
